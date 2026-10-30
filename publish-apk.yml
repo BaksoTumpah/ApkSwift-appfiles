@@ -1,0 +1,47 @@
+name: Publish APK to Releases
+
+# Dipakai bila unggah langsung dari browser ke Releases diblokir:
+# situs menyimpan APK sementara di apk/<tag>/<nama>.apk, workflow ini
+# memindahkannya ke GitHub Releases lalu menghapus berkasnya dari repo.
+on:
+  push:
+    branches: [main, master]
+    paths: ['apk/*/*']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-apk
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pindahkan APK ke Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          changed=0
+          for f in apk/*/*; do
+            [ -f "$f" ] || continue
+            tag=$(basename "$(dirname "$f")")
+            if gh release view "$tag" >/dev/null 2>&1; then
+              gh release upload "$tag" "$f" --clobber
+            else
+              gh release create "$tag" "$f" --title "$tag" --notes "Diunggah lewat ApkSwift"
+            fi
+            git rm -q "$f"
+            changed=1
+          done
+          if [ "$changed" = 1 ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "Pindahkan APK ke Releases"
+            git pull --rebase origin "$GITHUB_REF_NAME"
+            git push origin "HEAD:$GITHUB_REF_NAME"
+          fi
